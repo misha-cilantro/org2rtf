@@ -39,6 +39,12 @@ Flags:
       --line-spacing M   "single", "1.5" or "double" (default: single)
       --margin IN        all four margins, in inches (default: 1)
       --tab-width IN     distance between tab stops, in inches (default: 0.5)
+      --title-blank-lines N
+                         empty paragraphs above the title block; 0 puts it at
+                         the top of the page (default: 12)
+
+A centered title and byline are emitted when the file's preamble has #+title:
+and/or #+author: keywords, followed by one empty paragraph.
 
   -h, --help
       --version
@@ -89,6 +95,7 @@ func run(args []string) error {
 		lineSpacing = fs.String("line-spacing", d.LineSpacing, "")
 		margin      = fs.Float64("margin", d.Margin, "")
 		tabWidth    = fs.Float64("tab-width", d.TabWidth, "")
+		titleBlanks = fs.Int("title-blank-lines", d.TitleBlankLines, "")
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -149,6 +156,9 @@ func run(args []string) error {
 	}
 	if set["tab-width"] {
 		cfg.TabWidth = *tabWidth
+	}
+	if set["title-blank-lines"] {
+		cfg.TitleBlankLines = *titleBlanks
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -246,6 +256,8 @@ func parseOptions(cfg config.Config) parse.Options {
 		SceneMarker: cfg.SceneMarker,
 		SceneGlyph:  cfg.SceneGlyph,
 		EndText:     cfg.EndText,
+
+		TitleBlankLines: cfg.TitleBlankLines,
 	}
 }
 

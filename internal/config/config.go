@@ -43,6 +43,10 @@ type Config struct {
 	LineSpacing string  `toml:"line_spacing"`
 	Margin      float64 `toml:"margin"`
 	TabWidth    float64 `toml:"tab_width"`
+
+	// TitleBlankLines is a count of empty paragraphs, not a measurement: the
+	// distance it produces depends on the font size and line spacing.
+	TitleBlankLines int `toml:"title_blank_lines"`
 }
 
 // Default returns the built-in defaults, the lowest layer of precedence.
@@ -60,6 +64,10 @@ func Default() Config {
 		LineSpacing: Single,
 		Margin:      1.0,
 		TabWidth:    0.5,
+
+		// About a third of the way down page one at the default 12pt single
+		// spacing, which is roughly standard manuscript format.
+		TitleBlankLines: 12,
 	}
 }
 
@@ -148,6 +156,10 @@ func (c Config) Validate() error {
 	}
 	if c.TabWidth <= 0 {
 		return fmt.Errorf("tab-width: must be positive, got %v", c.TabWidth)
+	}
+	// Zero is meaningful here: it puts the title block at the top of the page.
+	if c.TitleBlankLines < 0 {
+		return fmt.Errorf("title-blank-lines: must not be negative, got %v", c.TitleBlankLines)
 	}
 	return nil
 }

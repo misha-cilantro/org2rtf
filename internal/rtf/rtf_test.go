@@ -137,6 +137,22 @@ func TestParagraphs(t *testing.T) {
 	}
 }
 
+func TestSpaceBefore(t *testing.T) {
+	paras := []doc.Paragraph{
+		{Runs: []doc.Run{{Text: "Title"}}, Centered: true, SpaceBefore: 2.5},
+		{Runs: []doc.Run{{Text: "body"}}},
+	}
+
+	out := string(Render(paras, testOptions()))
+
+	if want := `\pard\plain\qc\sb3600`; !strings.Contains(out, want) {
+		t.Errorf("output missing %q:\n%s", want, out)
+	}
+	if strings.Count(out, `\sb`) != 1 {
+		t.Errorf("space-before leaked onto another paragraph:\n%s", out)
+	}
+}
+
 func TestFontNameIsEscaped(t *testing.T) {
 	opts := testOptions()
 	opts.Font = `Odd{Font}`

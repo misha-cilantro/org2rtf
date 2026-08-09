@@ -1,4 +1,5 @@
 #+TITLE: Everything test
+#+AUTHOR: Jane Doe
 This prose sits before the begin marker and must not appear.
 
 #+begin_story

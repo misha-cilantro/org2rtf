@@ -46,6 +46,8 @@ Flags:
         --line-spacing MODE  "single", "1.5", or "double". Default: single
         --margin IN          All four margins, in inches. Default: 1.0
         --tab-width IN       Distance between tab stops, in inches. Default: 0.5
+        --title-offset IN    Space above the title block, in inches. 0 puts it
+                             at the top of the page. Default: 2.5
 
     -h, --help
         --version
@@ -68,6 +70,7 @@ Keys mirror the long flag names with hyphens replaced by underscores:
     line_spacing = "single"
     margin       = 1.0
     tab_width    = 0.5
+    title_offset = 2.5
 
 An unknown key in the config file is an error, not a warning — it is almost always
 a typo, and silently ignoring it produces output that is wrong in a way the user
@@ -82,6 +85,7 @@ Startup validation, all of which abort before any file is written:
     - underscore must be "italic" or "underline"
     - line_spacing must be "single", "1.5", or "double"
     - font_size, margin, and tab_width must be positive
+    - title_offset must not be negative; zero is allowed and means no offset
 
 If the output file exists and --force was not given, abort with an error and write
 nothing.
@@ -122,8 +126,9 @@ Formatting control words:
     italic      \i  ... \i0
     underline   \ul ... \ulnone
 
-Paragraphs are left-aligned by default (\pard). Scene-change and final paragraphs
-are centered (\pard\qc).
+Paragraphs are left-aligned by default (\pard). Title, byline, scene-change and
+final paragraphs are centered (\pard\qc). Space above a paragraph is \sb in
+twips, used only on the first paragraph of the title block.
 
 
 III. DOCUMENT STRUCTURE
@@ -132,7 +137,28 @@ III. DOCUMENT STRUCTURE
 1. Read the input as UTF-8. Split into lines on \n and strip a trailing \r from
    each line, so CRLF sources behave identically to LF sources.
 
-2. Locate the begin marker: the first line that, after leading whitespace is
+2. Build the title block from the preamble, the part of the file before the
+   begin marker:
+
+   - #+title: <value>   emitted as a centered paragraph
+   - #+author: <value>  emitted as a centered paragraph, prefixed with "by "
+
+   Matching is case-insensitive and tolerates leading whitespace. The value is
+   everything after the colon, trimmed at both ends: the space after the colon
+   is keyword syntax, not part of the title. Only the first occurrence of each
+   keyword is used, and an empty value is treated as absent. Both values are
+   scanned for inline formatting per section IV, so "#+title: The *Big* Sleep"
+   emits a bold word and an unclosed marker there warns like anywhere else.
+
+   The first paragraph of the block carries title_offset inches of space above
+   it, pushing the block down page one. One empty paragraph follows the block.
+   If neither keyword is present, nothing is emitted and the story starts at the
+   top of the page.
+
+   A #+title: after the begin marker is not a title. It starts with "#", so it
+   is an ordinary comment.
+
+3. Locate the begin marker: the first line that, after leading whitespace is
    trimmed, starts with "#+begin_story" or "#+story_start". Matching is
    case-insensitive.
 
@@ -144,7 +170,7 @@ III. DOCUMENT STRUCTURE
    - The begin marker line itself is never emitted. Everything before it is
      ignored.
 
-3. Process each subsequent line with the following precedence. The first rule that
+4. Process each subsequent line with the following precedence. The first rule that
    matches wins.
 
    a. END MARKER — the line, after trimming leading whitespace, starts with
@@ -197,11 +223,11 @@ III. DOCUMENT STRUCTURE
    "**" is plausibly bold text opening a tab-indented paragraph, so it is treated
    as ordinary prose.
 
-4. Blank lines are paragraphs. A blank source line produces an empty paragraph in
+5. Blank lines are paragraphs. A blank source line produces an empty paragraph in
    the output. Consecutive blank lines produce that many empty paragraphs. They are
    never skipped or collapsed.
 
-5. After the loop ends, emit a final centered paragraph containing end_text. If
+6. After the loop ends, emit a final centered paragraph containing end_text. If
    end_text is empty, emit nothing.
 
 
@@ -413,6 +439,10 @@ Cases that must be covered:
     - CRLF input producing byte-identical output to the LF equivalent
     - non-ASCII characters: smart quotes, em dash, accented letters
     - literal backslash, brace, and backtick in prose
+    - title block: both keywords, each alone, neither, case-insensitivity,
+      value trimming, an empty value, a repeated keyword, inline formatting in
+      a title, a keyword after the begin marker (a comment), the offset landing
+      on the first paragraph only, and a zero offset
     - missing begin marker, and end marker before begin marker (both errors)
     - missing end marker (runs to EOF, succeeds)
     - --underscore=underline

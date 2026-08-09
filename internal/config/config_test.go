@@ -34,6 +34,7 @@ func TestValidate(t *testing.T) {
 		{"zero font size", func(c *Config) { c.FontSize = 0 }, "font-size"},
 		{"negative margin", func(c *Config) { c.Margin = -1 }, "margin"},
 		{"zero tab width", func(c *Config) { c.TabWidth = 0 }, "tab-width"},
+		{"negative title offset", func(c *Config) { c.TitleOffset = -1 }, "title-offset"},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +60,15 @@ func TestValidateAcceptsEmptyEndTextAndGlyph(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("empty end text and glyph should be allowed: %v", err)
+	}
+}
+
+func TestValidateAcceptsZeroTitleOffset(t *testing.T) {
+	cfg := Default()
+	cfg.TitleOffset = 0
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("a zero title offset should be allowed: %v", err)
 	}
 }
 
