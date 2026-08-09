@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"org2rtf/internal/parse"
 )
 
 const sampleOrg = "#+begin_story\n\tOne *bold* line.\n#+end_story\n"
@@ -22,6 +25,65 @@ func newStory(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestPrintWarnings(t *testing.T) {
+	t.Run("one marker", func(t *testing.T) {
+		var buf bytes.Buffer
+		printWarnings(&buf, []parse.Warning{
+			{Line: 12, Text: "\tHe paid 5 * 3 dollars.", Markers: []string{"*"}},
+		}, "`")
+
+		out := buf.String()
+		for _, want := range []string{
+			"line 12",
+			"unclosed * marker",
+			"He paid 5 * 3 dollars.",
+			"write `* to keep it literal",
+			"add the matching * to close it",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("two markers read as plural", func(t *testing.T) {
+		var buf bytes.Buffer
+		printWarnings(&buf, []parse.Warning{
+			{Line: 3, Text: "A *b _c", Markers: []string{"*", "_"}},
+		}, "`")
+
+		out := buf.String()
+		for _, want := range []string{
+			"unclosed * and _ markers",
+			"write `* or `_ to keep them literal",
+			"add the matching * and _ to close them",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("uses the configured word escape", func(t *testing.T) {
+		var buf bytes.Buffer
+		printWarnings(&buf, []parse.Warning{
+			{Line: 1, Text: "x *y", Markers: []string{"*"}},
+		}, "~")
+
+		if out := buf.String(); !strings.Contains(out, "write ~* to keep it literal") {
+			t.Errorf("hint did not use the configured escape:\n%s", out)
+		}
+	})
+
+	t.Run("nothing printed when there are no warnings", func(t *testing.T) {
+		var buf bytes.Buffer
+		printWarnings(&buf, nil, "`")
+		if buf.Len() != 0 {
+			t.Errorf("got %q, want no output", buf.String())
+		}
+	})
 }
 
 func TestDefaultOutputPath(t *testing.T) {

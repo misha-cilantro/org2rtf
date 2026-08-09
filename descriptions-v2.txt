@@ -200,6 +200,27 @@ Because the toggles are independent, overlapping ranges are well defined:
 Any toggle still active at end of line is closed there. Formatting never crosses a
 paragraph boundary.
 
+WARNINGS ON AUTO-CLOSE
+
+Auto-closing is legal but is usually a symptom: an unescaped literal asterisk or
+underscore, as in "He paid 5 * 3 dollars". Every time a line is auto-closed the
+app writes a warning to stderr naming the line number, reproducing the line
+verbatim, and giving both remedies:
+
+    org2rtf: warning: line 3: unclosed * marker, closed at end of line
+        	He paid 5 * 3 dollars for it.
+        hint: write `* to keep it literal, or add the matching * to close it
+
+    org2rtf: warning: line 4: unclosed * and _ markers, closed at end of line
+        	A *stray and an _other on one line.
+        hint: write `* or `_ to keep them literal, or add the matching * and _
+              to close them
+
+The hint always quotes the configured word escape, not a hard-coded backtick.
+Warnings go to stderr so they do not mix with the success line on stdout, and
+they never change the exit code or stop the conversion: the file is still
+written, with the markers closed at end of line.
+
 ESCAPES
 
 The scanner works left to right. At each position it tests, in this order:
@@ -315,6 +336,10 @@ Cases that must be covered:
     - all four escape cases from section IV
     - overlapping bold/italic ranges
     - a marker left unclosed at end of line
+    - the warning that reports it: line number, verbatim line, both remedies,
+      one marker and two, and the configured word escape appearing in the hint
+    - lines that must NOT warn: balanced markers, an escaped literal marker, a
+      fully escaped line, comments, and scene-change lines
     - blank lines, including consecutive blank lines
     - an indented comment and an indented end marker
     - an indented "**" (must remain a normal paragraph)

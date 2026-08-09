@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,10 +196,11 @@ func run(args []string) error {
 		return err
 	}
 
-	paras, err := parse.Parse(src, parseOptions(cfg))
+	paras, warnings, err := parse.Parse(src, parseOptions(cfg))
 	if err != nil {
 		return fmt.Errorf("%s: %w", input, err)
 	}
+	printWarnings(os.Stderr, warnings, cfg.WordEscape)
 
 	// Rendered in full before anything is written, so a failure can never
 	// leave a truncated file behind.
@@ -208,6 +210,31 @@ func run(args []string) error {
 
 	fmt.Printf("wrote %s (%d paragraphs)\n", output, len(paras))
 	return nil
+}
+
+// printWarnings reports lines that ended with formatting still open. This is
+// almost always an unescaped literal asterisk or underscore, so each warning
+// names both remedies: escape it, or close it.
+func printWarnings(w io.Writer, warnings []parse.Warning, wordEscape string) {
+	for _, warn := range warnings {
+		markers := strings.Join(warn.Markers, " and ")
+
+		escaped := make([]string, len(warn.Markers))
+		for i, m := range warn.Markers {
+			escaped[i] = wordEscape + m
+		}
+
+		noun, pronoun := "marker", "it"
+		if len(warn.Markers) > 1 {
+			noun, pronoun = "markers", "them"
+		}
+
+		fmt.Fprintf(w, "org2rtf: warning: line %d: unclosed %s %s, closed at end of line\n",
+			warn.Line, markers, noun)
+		fmt.Fprintf(w, "    %s\n", warn.Text)
+		fmt.Fprintf(w, "    hint: write %s to keep %s literal, or add the matching %s to close %s\n",
+			strings.Join(escaped, " or "), pronoun, markers, pronoun)
+	}
 }
 
 // parseOptions extracts the parser-relevant options from a resolved config.

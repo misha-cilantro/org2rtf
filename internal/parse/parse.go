@@ -21,6 +21,15 @@ var (
 	endMarkers   = []string{"#+end_story", "#+story_end"}
 )
 
+// Warning reports a line that ended with formatting still open, which the
+// parser closed for it. That is legal but usually means a literal asterisk or
+// underscore went unescaped, so it is worth surfacing.
+type Warning struct {
+	Line    int      // 1-based line number in the source file
+	Text    string   // the offending source line, verbatim
+	Markers []string // the markers left open, in the order "*", "_"
+}
+
 // Options are the parser-relevant subset of the configuration.
 type Options struct {
 	Underscore  string // "italic" or "underline"
@@ -33,7 +42,9 @@ type Options struct {
 
 // Parse converts src into paragraphs. Conversion begins after the story begin
 // marker and stops at the end marker, or at end of file if there isn't one.
-func Parse(src []byte, opts Options) ([]doc.Paragraph, error) {
+// Any lines that ended with formatting still open are reported as warnings; the
+// formatting is closed regardless, so warnings never block conversion.
+func Parse(src []byte, opts Options) ([]doc.Paragraph, []Warning, error) {
 	lines := splitLines(string(src))
 
 	beginIdx, endIdx := -1, -1
@@ -47,21 +58,24 @@ func Parse(src []byte, opts Options) ([]doc.Paragraph, error) {
 		}
 	}
 	if beginIdx < 0 {
-		return nil, ErrNoBeginMarker
+		return nil, nil, ErrNoBeginMarker
 	}
 	if endIdx >= 0 && endIdx < beginIdx {
-		return nil, ErrEndBeforeBegin
+		return nil, nil, ErrEndBeforeBegin
 	}
 
-	var paras []doc.Paragraph
-	for _, line := range lines[beginIdx+1:] {
+	var (
+		paras    []doc.Paragraph
+		warnings []Warning
+	)
+	for offset, line := range lines[beginIdx+1:] {
 		trimmed := trimLeadingSpace(line)
 
 		switch {
 		// The end marker is checked first so an indented one still terminates
 		// the story instead of being swallowed by the comment rule below.
 		case hasMarker(trimmed, endMarkers):
-			return append(paras, endParagraph(opts)...), nil
+			return append(paras, endParagraph(opts)...), warnings, nil
 
 		// Scene changes are column-0 strict, unlike comments: an indented "**"
 		// is plausibly bold text opening a tab-indented paragraph.
@@ -73,10 +87,28 @@ func Parse(src []byte, opts Options) ([]doc.Paragraph, error) {
 			// indented to match the prose around them.
 
 		default:
-			paras = append(paras, doc.Paragraph{Runs: parseLine(line, opts)})
+			runs, openBold, openEmph := parseLine(line, opts)
+			paras = append(paras, doc.Paragraph{Runs: runs})
+
+			if openBold || openEmph {
+				var markers []string
+				if openBold {
+					markers = append(markers, "*")
+				}
+				if openEmph {
+					markers = append(markers, "_")
+				}
+				warnings = append(warnings, Warning{
+					// +2 because beginIdx is 0-based and the body starts on
+					// the line after it.
+					Line:    beginIdx + 2 + offset,
+					Text:    line,
+					Markers: markers,
+				})
+			}
 		}
 	}
-	return append(paras, endParagraph(opts)...), nil
+	return append(paras, endParagraph(opts)...), warnings, nil
 }
 
 func endParagraph(opts Options) []doc.Paragraph {
@@ -133,10 +165,10 @@ func hasMarker(line string, markers []string) bool {
 
 // parseLine scans one line into styled runs. Bold and emphasis are independent
 // toggles rather than a nesting stack, so overlapping ranges are well defined
-// and anything still open simply closes at end of line.
-func parseLine(line string, opts Options) []doc.Run {
+// and anything still open simply closes at end of line. The returned flags say
+// which toggles were still open when the line ended.
+func parseLine(line string, opts Options) (runs []doc.Run, openBold, openEmph bool) {
 	var (
-		runs []doc.Run
 		buf  strings.Builder
 		bold bool
 		emph bool
@@ -208,7 +240,7 @@ func parseLine(line string, opts Options) []doc.Run {
 	}
 
 	flush()
-	return runs
+	return runs, bold, emph
 }
 
 func isSpaceOrTab(b byte) bool {

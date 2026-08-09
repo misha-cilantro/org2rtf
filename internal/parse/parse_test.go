@@ -25,7 +25,7 @@ func testOpts() Options {
 func body(t *testing.T, opts Options, lines string) []doc.Paragraph {
 	t.Helper()
 	src := "#+begin_story\n" + lines + "\n#+end_story\n"
-	paras, err := Parse([]byte(src), opts)
+	paras, _, err := Parse([]byte(src), opts)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("text before the begin marker is ignored", func(t *testing.T) {
 		src := "#+TITLE: x\nIgnored prose.\n#+begin_story\nKept.\n#+end_story\nAlso ignored.\n"
-		paras, err := Parse([]byte(src), opts)
+		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -275,7 +275,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("markers are case insensitive", func(t *testing.T) {
 		src := "#+BEGIN_STORY\nKept.\n#+END_STORY\n"
-		paras, err := Parse([]byte(src), opts)
+		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,7 +286,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("alternate marker spellings", func(t *testing.T) {
 		src := "#+story_start\nKept.\n#+story_end\n"
-		paras, err := Parse([]byte(src), opts)
+		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -297,7 +297,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("indented end marker still ends the story", func(t *testing.T) {
 		src := "#+begin_story\nKept.\n\t#+end_story\nIgnored.\n"
-		paras, err := Parse([]byte(src), opts)
+		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,7 +308,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("missing end marker runs to EOF", func(t *testing.T) {
 		src := "#+begin_story\nOne.\nTwo.\n"
-		paras, err := Parse([]byte(src), opts)
+		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -318,7 +318,7 @@ func TestStoryBoundaries(t *testing.T) {
 	})
 
 	t.Run("missing begin marker is an error", func(t *testing.T) {
-		_, err := Parse([]byte("Just prose.\n"), opts)
+		_, _, err := Parse([]byte("Just prose.\n"), opts)
 		if !errors.Is(err, ErrNoBeginMarker) {
 			t.Errorf("got %v, want ErrNoBeginMarker", err)
 		}
@@ -326,7 +326,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("end before begin is an error", func(t *testing.T) {
 		src := "#+end_story\n#+begin_story\nx\n"
-		_, err := Parse([]byte(src), opts)
+		_, _, err := Parse([]byte(src), opts)
 		if !errors.Is(err, ErrEndBeforeBegin) {
 			t.Errorf("got %v, want ErrEndBeforeBegin", err)
 		}
@@ -334,7 +334,7 @@ func TestStoryBoundaries(t *testing.T) {
 
 	t.Run("second begin marker is treated as a comment", func(t *testing.T) {
 		src := "#+begin_story\nOne.\n#+begin_story\nTwo.\n#+end_story\n"
-		paras, err := Parse([]byte(src), opts)
+		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -348,7 +348,7 @@ func TestEndText(t *testing.T) {
 	opts := testOpts()
 	opts.EndText = "END"
 
-	paras, err := Parse([]byte("#+begin_story\nOne.\n#+end_story\n"), opts)
+	paras, _, err := Parse([]byte("#+begin_story\nOne.\n#+end_story\n"), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestEndText(t *testing.T) {
 	}
 
 	t.Run("appended when the end marker is missing", func(t *testing.T) {
-		paras, err := Parse([]byte("#+begin_story\nOne.\n"), opts)
+		paras, _, err := Parse([]byte("#+begin_story\nOne.\n"), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -370,7 +370,7 @@ func TestEndText(t *testing.T) {
 
 	t.Run("empty end text emits nothing", func(t *testing.T) {
 		opts.EndText = ""
-		paras, err := Parse([]byte("#+begin_story\nOne.\n#+end_story\n"), opts)
+		paras, _, err := Parse([]byte("#+begin_story\nOne.\n#+end_story\n"), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -380,15 +380,82 @@ func TestEndText(t *testing.T) {
 	})
 }
 
+func TestUnclosedMarkerWarnings(t *testing.T) {
+	opts := testOpts()
+
+	t.Run("reports the line, its number and the marker", func(t *testing.T) {
+		src := "#+TITLE: x\npreamble\n#+begin_story\n\tFine *line* here.\n\tHe paid 5 * 3 dollars.\n#+end_story\n"
+
+		_, warnings, err := Parse([]byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("got %d warnings, want 1: %#v", len(warnings), warnings)
+		}
+
+		got := warnings[0]
+		want := Warning{Line: 5, Text: "\tHe paid 5 * 3 dollars.", Markers: []string{"*"}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got  %#v\nwant %#v", got, want)
+		}
+	})
+
+	t.Run("both markers left open", func(t *testing.T) {
+		_, warnings, err := Parse([]byte("#+begin_story\nA *b _c\n#+end_story\n"), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("got %d warnings, want 1", len(warnings))
+		}
+		if want := []string{"*", "_"}; !reflect.DeepEqual(warnings[0].Markers, want) {
+			t.Errorf("got %v, want %v", warnings[0].Markers, want)
+		}
+	})
+
+	t.Run("line escape still leaves earlier formatting open", func(t *testing.T) {
+		_, warnings, err := Parse([]byte("#+begin_story\n*bold ``` rest\n#+end_story\n"), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("got %d warnings, want 1: %#v", len(warnings), warnings)
+		}
+	})
+
+	quiet := []struct{ name, line string }{
+		{"balanced markers", "\tShe said *hello* and _left_."},
+		{"escaped literal asterisk", "\tHe paid 5 `* 3 dollars."},
+		{"whole line escaped", "\tHe paid ``` 5 * 3 dollars."},
+		{"no markers at all", "\tNothing to see here."},
+		{"comment line", "# a *stray marker in a comment"},
+		{"scene change line", "** a *stray marker on a scene line"},
+		{"adjacent toggles balance out", "a **text** b"},
+	}
+	for _, tt := range quiet {
+		t.Run("no warning: "+tt.name, func(t *testing.T) {
+			src := "#+begin_story\n" + tt.line + "\n#+end_story\n"
+			_, warnings, err := Parse([]byte(src), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(warnings) != 0 {
+				t.Errorf("got %#v, want no warnings", warnings)
+			}
+		})
+	}
+}
+
 func TestCRLFMatchesLF(t *testing.T) {
 	lf := "#+begin_story\n\tOne.\n\n\tTwo.\n#+end_story\n"
 	crlf := "#+begin_story\r\n\tOne.\r\n\r\n\tTwo.\r\n#+end_story\r\n"
 
-	a, err := Parse([]byte(lf), testOpts())
+	a, _, err := Parse([]byte(lf), testOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Parse([]byte(crlf), testOpts())
+	b, _, err := Parse([]byte(crlf), testOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,11 +465,11 @@ func TestCRLFMatchesLF(t *testing.T) {
 }
 
 func TestTrailingNewlineDoesNotAddParagraph(t *testing.T) {
-	withNL, err := Parse([]byte("#+begin_story\nOne.\n"), testOpts())
+	withNL, _, err := Parse([]byte("#+begin_story\nOne.\n"), testOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	withoutNL, err := Parse([]byte("#+begin_story\nOne."), testOpts())
+	withoutNL, _, err := Parse([]byte("#+begin_story\nOne."), testOpts())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +479,7 @@ func TestTrailingNewlineDoesNotAddParagraph(t *testing.T) {
 }
 
 func TestLeadingBOMIsDropped(t *testing.T) {
-	paras, err := Parse([]byte("\uFEFF#+begin_story\nOne.\n#+end_story\n"), testOpts())
+	paras, _, err := Parse([]byte("\uFEFF#+begin_story\nOne.\n#+end_story\n"), testOpts())
 	if err != nil {
 		t.Fatal(err)
 	}

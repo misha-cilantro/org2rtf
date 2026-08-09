@@ -54,7 +54,7 @@ func TestGolden(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			paras, err := parse.Parse(src, parseOptions(cfg))
+			paras, _, err := parse.Parse(src, parseOptions(cfg))
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
