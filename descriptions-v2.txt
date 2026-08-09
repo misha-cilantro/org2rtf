@@ -1,0 +1,320 @@
+org2rtf — Specification v2
+==========================
+
+A Go command-line tool that converts .org manuscript files to .rtf, preserving the
+source text exactly except for a small, explicitly defined set of transformations.
+
+Guiding principle: THE APP MUST NEVER ADD, REMOVE, OR NORMALIZE ANYTHING NOT
+SPECIFIED BELOW. No trimming, no collapsing of whitespace, no smart substitutions,
+no inferred spacing. Tabs in particular must survive exactly, including runs of
+consecutive tabs.
+
+
+I. INVOCATION
+-------------
+
+There is no interactive UI. The app is driven entirely by CLI flags and an optional
+config file.
+
+    org2rtf [flags] <input.org>
+
+The input path is a required positional argument. If it is missing, unreadable, or
+does not exist, the app exits with an error and writes nothing.
+
+Option precedence, highest to lowest:
+
+    1. CLI flag
+    2. Config file
+    3. Built-in default
+
+Flags:
+
+    -o, --output PATH        Output file. Default: same directory and base name as
+                             the input, with the extension replaced by .rtf
+    -f, --force              Overwrite the output file if it already exists
+        --config PATH        Use this config file instead of the search path
+
+        --underscore MODE    What _ means: "italic" or "underline". Default: italic
+        --line-escape STR    Rest-of-line literal marker. Default: ```
+        --word-escape STR    Single-word literal marker. Default: `
+        --scene-marker STR   Scene-change line prefix, asterisks only. Default: **
+        --scene-glyph STR    Text of the emitted scene-change paragraph. Default: *
+        --end-text STR       Final paragraph text. Default: END. Empty disables it
+
+        --font NAME          Default: Times New Roman
+        --font-size PT       Default: 12
+        --line-spacing MODE  "single", "1.5", or "double". Default: single
+        --margin IN          All four margins, in inches. Default: 1.0
+        --tab-width IN       Distance between tab stops, in inches. Default: 0.5
+
+    -h, --help
+        --version
+
+Config file: TOML, searched for in this order and first match wins:
+
+    ./.org2rtf.toml
+    ~/.org2rtf.toml
+
+Keys mirror the long flag names with hyphens replaced by underscores:
+
+    underscore   = "italic"
+    line_escape  = "```"
+    word_escape  = "`"
+    scene_marker = "**"
+    scene_glyph  = "*"
+    end_text     = "END"
+    font         = "Times New Roman"
+    font_size    = 12
+    line_spacing = "single"
+    margin       = 1.0
+    tab_width    = 0.5
+
+An unknown key in the config file is an error, not a warning — it is almost always
+a typo, and silently ignoring it produces output that is wrong in a way the user
+cannot see.
+
+Startup validation, all of which abort before any file is written:
+
+    - line_escape and word_escape must both be non-empty
+    - line_escape must not equal word_escape repeated twice, or the two escape
+      forms become ambiguous
+    - scene_marker must be non-empty and consist only of asterisks
+    - underscore must be "italic" or "underline"
+    - line_spacing must be "single", "1.5", or "double"
+    - font_size, margin, and tab_width must be positive
+
+If the output file exists and --force was not given, abort with an error and write
+nothing.
+
+
+II. OUTPUT FORMAT
+-----------------
+
+RTF 1.x, single file. Not ODT — the repository name is authoritative.
+
+Document header declares, from the resolved configuration: the font in the font
+table, the default font size, page margins, default tab stop interval, and line
+spacing. Tab stops are declared via \deftab in twips (1440 twips per inch, so the
+0.5" default is \deftab720).
+
+Character-level escaping, applied to all emitted text:
+
+    \  {  }              escaped as \\  \{  \}
+    tab (U+0009)         emitted as \tab
+    non-ASCII (> U+007F) emitted as \uNNNN? with the signed 16-bit code unit;
+                         characters outside the BMP emit their surrogate pair as
+                         two consecutive \u escapes
+    everything else      emitted literally
+
+This escaping is what allows smart quotes, em dashes, and accented characters to
+round-trip correctly.
+
+Formatting control words:
+
+    bold        \b  ... \b0
+    italic      \i  ... \i0
+    underline   \ul ... \ulnone
+
+Paragraphs are left-aligned by default (\pard). Scene-change and final paragraphs
+are centered (\pard\qc).
+
+
+III. DOCUMENT STRUCTURE
+-----------------------
+
+1. Read the input as UTF-8. Split into lines on \n and strip a trailing \r from
+   each line, so CRLF sources behave identically to LF sources.
+
+2. Locate the begin marker: the first line that, after leading whitespace is
+   trimmed, starts with "#+begin_story" or "#+story_start". Matching is
+   case-insensitive.
+
+   - If no begin marker is found, abort with an error and write nothing.
+   - If an end marker appears on a line before the begin marker, abort with an
+     error and write nothing.
+   - A second begin marker later in the file is not special; it is an ordinary
+     line starting with #, and is therefore treated as a comment.
+   - The begin marker line itself is never emitted. Everything before it is
+     ignored.
+
+3. Process each subsequent line with the following precedence. The first rule that
+   matches wins.
+
+   a. END MARKER — the line, after trimming leading whitespace, starts with
+      "#+end_story" or "#+story_end" (case-insensitive). Stop processing. The line
+      is not emitted.
+
+      If no end marker is ever found, processing simply runs to end of file. This
+      is not an error.
+
+   b. SCENE CHANGE — the line starts with the scene marker at column 0, with no
+      leading whitespace. Emit a centered paragraph containing the scene glyph.
+      The remainder of the line is discarded.
+
+      This check is deliberately column-0 strict, unlike the comment check. An
+      indented "**" is plausibly bold text opening a tab-indented paragraph, so it
+      is treated as ordinary prose.
+
+   c. COMMENT — the line, after trimming leading whitespace, starts with "#".
+      Skip it entirely; emit nothing. Leading whitespace is tolerated so comments
+      can be indented to match surrounding prose.
+
+   d. PARAGRAPH — everything else. Emit one paragraph, with inline formatting
+      applied per section IV.
+
+4. Blank lines are paragraphs. A blank source line produces an empty paragraph in
+   the output. Consecutive blank lines produce that many empty paragraphs. They are
+   never skipped or collapsed.
+
+5. After the loop ends, emit a final centered paragraph containing end_text. If
+   end_text is empty, emit nothing.
+
+
+IV. INLINE FORMATTING
+---------------------
+
+Only two characters carry meaning: _ and *. Every other org construct — /slant/,
+=code=, ~verbatim~, +strike+, [[links]], and anything else — passes through as
+literal text.
+
+Formatting is modeled as two independent toggles, not as a nesting stack:
+
+    *   toggles bold
+    _   toggles emphasis, which renders as italic or underline per --underscore
+
+Every occurrence of these characters is a marker. There is no word-boundary rule;
+"this_word_example" italicizes "word". Literal underscores and asterisks are
+produced with the escape mechanism, not inferred from context.
+
+Because the toggles are independent, overlapping ranges are well defined:
+
+    *bold _both* italic_   ->   "bold" bold, "both" bold+italic, "italic" italic
+
+Any toggle still active at end of line is closed there. Formatting never crosses a
+paragraph boundary.
+
+ESCAPES
+
+The scanner works left to right. At each position it tests, in this order:
+
+    1. line_escape (default ```)
+       Consume the marker. Emit the entire remainder of the line as literal text —
+       no marker interpretation, though RTF character escaping still applies. The
+       line ends here.
+
+    2. word_escape doubled (default ``)
+       Consume both. Emit one literal instance of the escape character.
+
+    3. word_escape followed by a non-whitespace character (default `)
+       Consume the marker. Emit every character up to, but not including, the next
+       whitespace character or end of line as literal text. Resume normal scanning
+       from there.
+
+    4. word_escape followed by whitespace or end of line
+       Emit it as a literal character. There is nothing to escape.
+
+This ordering is greedy, so four consecutive backticks parse as ``` (rest of line
+literal) followed by a literal backtick as the first character of that literal run.
+
+Escape markers are always consumed and never appear in the output, except in case
+2, which emits exactly one escape character, and case 4, which emits the character
+it found.
+
+A word escape suppresses markers inside that word; it does not close formatting
+that is already open. In "*Hello `this_word there*" the bold opened before the
+escaped word remains active through it — the backtick only stops the _ inside
+"this_word" from toggling.
+
+Examples, with the default configuration and --underscore=italic:
+
+    She said *hello* to him.
+        -> "hello" bold
+
+    The file_name_here is fine.
+        -> "name" italic; use `file_name_here to prevent it
+
+    `this_word_example
+        -> literal "this_word_example"
+
+    He paid 5 * 3 dollars.
+        -> everything after the * is bold, closed at end of line;
+           use `* or ``` to prevent it
+
+    Press `` to continue
+        -> literal backtick
+
+    Notes: ``` see *this* and _that_
+        -> literal "see *this* and _that_"
+
+    foo ` bar
+        -> literal backtick between two spaces
+
+
+V. TABS
+-------
+
+Tabs are preserved exactly and unconditionally. There is no substitution option.
+
+    - Every tab character in the source emits exactly one \tab in the output.
+    - Runs of consecutive tabs emit that many \tab control words.
+    - Tabs are never removed, merged, or converted to spaces.
+    - Tabs at the start of a line are preserved like any other tab.
+    - Tab stop spacing is set by --tab-width via \deftab in the header, so runs of
+      tabs land on predictable, evenly spaced stops.
+
+Note that with a proportional font such as the Times New Roman default, a tab
+advances to the next stop rather than a fixed column, so its visual position
+depends on the text preceding it. The character count is exact regardless.
+
+
+VI. IMPLEMENTATION NOTES
+------------------------
+
+Suggested layout:
+
+    cmd/org2rtf/main.go     flag parsing, config resolution, wiring
+    internal/config         defaults, TOML loading, precedence, validation
+    internal/parse          org text -> []Paragraph
+    internal/rtf            []Paragraph -> RTF bytes
+
+Core types:
+
+    type Run struct {
+        Text      string   // may contain tabs; the writer escapes them
+        Bold      bool
+        Italic    bool
+        Underline bool
+    }
+
+    type Paragraph struct {
+        Runs     []Run
+        Centered bool
+    }
+
+Keeping the parser and the writer separate means tab handling lives in exactly one
+place (the writer's escaper) and the parser can be tested without producing RTF.
+
+TESTING
+
+Golden-file tests are the primary deliverable, since "exactly as written" is the
+core requirement. Pair each testdata/*.org with an expected testdata/*.rtf and
+compare bytes.
+
+Cases that must be covered:
+
+    - a line of 1, 2, 3, and 5 consecutive tabs, including leading tabs
+    - a tab immediately adjacent to a formatting marker
+    - all four escape cases from section IV
+    - overlapping bold/italic ranges
+    - a marker left unclosed at end of line
+    - blank lines, including consecutive blank lines
+    - an indented comment and an indented end marker
+    - an indented "**" (must remain a normal paragraph)
+    - a scene-change line with trailing text (must be discarded)
+    - CRLF input producing byte-identical output to the LF equivalent
+    - non-ASCII characters: smart quotes, em dash, accented letters
+    - literal backslash, brace, and backtick in prose
+    - missing begin marker, and end marker before begin marker (both errors)
+    - missing end marker (runs to EOF, succeeds)
+    - --underscore=underline
+    - output file exists, with and without --force
