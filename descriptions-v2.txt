@@ -154,20 +154,48 @@ III. DOCUMENT STRUCTURE
       If no end marker is ever found, processing simply runs to end of file. This
       is not an error.
 
-   b. SCENE CHANGE — the line starts with the scene marker at column 0, with no
-      leading whitespace. Emit a centered paragraph containing the scene glyph.
-      The remainder of the line is discarded.
+   b. SCENE CHANGE — the line is an org section heading whose depth equals the
+      scene marker. Emit a centered paragraph containing the scene glyph. The
+      remainder of the line is discarded.
 
-      This check is deliberately column-0 strict, unlike the comment check. An
-      indented "**" is plausibly bold text opening a tab-indented paragraph, so it
-      is treated as ordinary prose.
+      All document structure is driven by org section headings. A line is a
+      section heading when it begins at column 0 with a run of asterisks that is
+      followed by whitespace or ends the line; its depth is the length of that
+      run. Both conditions are required:
 
-   c. COMMENT — the line, after trimming leading whitespace, starts with "#".
+          **                  depth 2, scene change
+          ** Chapter Two      depth 2, scene change, trailing text discarded
+          **<tab>Notes        depth 2, scene change
+          **Bang!** he said   no whitespace after the run, so not a heading:
+                              prose
+          *Bang!* she said    not a heading: prose, with "Bang!" in bold
+            **                indented, so not a heading: prose
+
+      Depth is matched exactly rather than as a prefix, so with a "**" marker a
+      "***" heading is not mistaken for a scene change.
+
+   c. SECTION HEADING — a section heading at any other depth. Skip it entirely;
+      emit nothing. This lets org sections be used freely to structure the source
+      without appearing in the output:
+
+          * Act One           depth 1, ignored
+          *** Draft ideas     depth 3, ignored
+          *                   depth 1, ignored
+          ****                depth 4, ignored
+
+      Note that setting the scene marker to "*" makes every depth-1 section a
+      scene change; use a deeper marker if depth-1 sections should be ignored.
+
+   d. COMMENT — the line, after trimming leading whitespace, starts with "#".
       Skip it entirely; emit nothing. Leading whitespace is tolerated so comments
       can be indented to match surrounding prose.
 
-   d. PARAGRAPH — everything else. Emit one paragraph, with inline formatting
+   e. PARAGRAPH — everything else. Emit one paragraph, with inline formatting
       applied per section IV.
+
+   Rules (b) and (c) are column-0 strict, unlike the comment rule. An indented
+   "**" is plausibly bold text opening a tab-indented paragraph, so it is treated
+   as ordinary prose.
 
 4. Blank lines are paragraphs. A blank source line produces an empty paragraph in
    the output. Consecutive blank lines produce that many empty paragraphs. They are
@@ -342,8 +370,12 @@ Cases that must be covered:
       fully escaped line, comments, and scene-change lines
     - blank lines, including consecutive blank lines
     - an indented comment and an indented end marker
-    - an indented "**" (must remain a normal paragraph)
+    - an indented "**" and an indented "*" (must remain normal paragraphs)
     - a scene-change line with trailing text (must be discarded)
+    - section headings above and below the scene depth (must be ignored)
+    - "*Bang!* she said" and "**Bang!** he replied" at column 0 (must remain
+      paragraphs: no whitespace after the run, so not headings)
+    - a scene marker set to a different depth, which reclassifies both
     - CRLF input producing byte-identical output to the LF equivalent
     - non-ASCII characters: smart quotes, em dash, accented letters
     - literal backslash, brace, and backtick in prose

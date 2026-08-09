@@ -1,0 +1,14 @@
+#+begin_story
+* Act One
+	The door opened.
+** A section at scene depth becomes a scene change
+	She stepped inside.
+*** Draft ideas
+***** Deeply nested outline
+*
+	The lights were off.
+*Bang!* she said, and the line survives with the bold intact.
+**Bang!** he replied, because that is not a valid section either.
+***emphatic*** survives too.
+	*Indented* asterisks are prose, not a heading.
+#+end_story

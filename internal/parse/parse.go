@@ -71,16 +71,29 @@ func Parse(src []byte, opts Options) ([]doc.Paragraph, []Warning, error) {
 	for offset, line := range lines[beginIdx+1:] {
 		trimmed := trimLeadingSpace(line)
 
+		// Structure is driven entirely by org section headings: a run of
+		// asterisks at column 0 followed by whitespace or nothing. A heading
+		// whose depth matches the scene marker is a scene change, and any
+		// other heading is ignored. The rule is column-0 strict, unlike
+		// comments: an indented "**" is plausibly bold text opening a
+		// tab-indented paragraph.
+		asterisks := leadingAsterisks(line)
+		heading := asterisks > 0 && isHeading(line, asterisks)
+
 		switch {
 		// The end marker is checked first so an indented one still terminates
 		// the story instead of being swallowed by the comment rule below.
 		case hasMarker(trimmed, endMarkers):
 			return append(paras, endParagraph(opts)...), warnings, nil
 
-		// Scene changes are column-0 strict, unlike comments: an indented "**"
-		// is plausibly bold text opening a tab-indented paragraph.
-		case strings.HasPrefix(line, opts.SceneMarker):
+		// Matched on the depth of the heading rather than as a prefix, so with
+		// a "**" marker a "***" heading is not mistaken for a scene change.
+		case heading && asterisks == len(opts.SceneMarker):
 			paras = append(paras, literalParagraph(opts.SceneGlyph))
+
+		// A section heading at any other depth. Ignored so sections can be
+		// used freely to structure the source.
+		case heading:
 
 		case strings.HasPrefix(trimmed, "#"):
 			// Comment. Leading whitespace is tolerated so comments can be
@@ -150,6 +163,23 @@ func splitLines(s string) []string {
 
 func trimLeadingSpace(s string) string {
 	return strings.TrimLeft(s, " \t")
+}
+
+// leadingAsterisks counts the asterisks starting at column 0.
+func leadingAsterisks(line string) int {
+	n := 0
+	for n < len(line) && line[n] == '*' {
+		n++
+	}
+	return n
+}
+
+// isHeading reports whether an asterisk run of length n has the shape of an org
+// section heading: followed by whitespace, or making up the whole line. Prose
+// that merely opens with markers, such as "*Bang!* she said" or "**Bang!** he
+// replied", does not qualify and is kept as text.
+func isHeading(line string, n int) bool {
+	return n == len(line) || isSpaceOrTab(line[n])
 }
 
 // hasMarker reports whether line begins with one of the given org keywords,

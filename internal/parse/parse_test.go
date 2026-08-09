@@ -242,6 +242,86 @@ func TestLineClassification(t *testing.T) {
 		}
 	})
 
+	t.Run("org headings that are not the scene marker are ignored", func(t *testing.T) {
+		ignored := []string{
+			"* Section One",
+			"*** Sub-section",
+			"***** Deeply nested",
+			"*",
+			"****",
+			"*\tTab after the asterisk",
+		}
+		for _, line := range ignored {
+			if paras := body(t, opts, line); len(paras) != 0 {
+				t.Errorf("%q produced %#v, want it ignored", line, paras)
+			}
+		}
+	})
+
+	t.Run("prose opening with a bold word is kept", func(t *testing.T) {
+		kept := []struct {
+			line string
+			want []doc.Run
+		}{
+			{"*Bang!* she said", []doc.Run{
+				{Text: "Bang!", Bold: true},
+				{Text: " she said"},
+			}},
+			// Three toggles leave bold on when the text begins, and three
+			// more turn it back off, so nothing is left open.
+			{"***emphatic***", []doc.Run{{Text: "emphatic", Bold: true}}},
+		}
+		for _, tt := range kept {
+			paras := body(t, opts, tt.line)
+			if len(paras) != 1 {
+				t.Fatalf("%q produced %d paragraphs, want 1", tt.line, len(paras))
+			}
+			if !reflect.DeepEqual(paras[0].Runs, tt.want) {
+				t.Errorf("%q gave %#v\nwant %#v", tt.line, paras[0].Runs, tt.want)
+			}
+		}
+	})
+
+	t.Run("scene changes must be valid org sections", func(t *testing.T) {
+		// Trailing text on a scene line is still discarded.
+		for _, line := range []string{"**", "** Chapter Two", "**\tTabbed"} {
+			paras := body(t, opts, line)
+			want := []doc.Paragraph{{Runs: []doc.Run{{Text: "*"}}, Centered: true}}
+			if !reflect.DeepEqual(paras, want) {
+				t.Errorf("%q gave %#v, want a scene change", line, paras)
+			}
+		}
+
+		// The right number of asterisks is not enough on its own: without the
+		// whitespace it is not a section, so it stays prose.
+		for _, line := range []string{"**Bang* she said", "**Bang!** he replied"} {
+			paras := body(t, opts, line)
+			if len(paras) != 1 || paras[0].Centered {
+				t.Errorf("%q gave %#v, want one left-aligned paragraph", line, paras)
+			}
+		}
+	})
+
+	t.Run("the rule follows a custom scene marker", func(t *testing.T) {
+		custom := testOpts()
+		custom.SceneMarker = "***"
+
+		if paras := body(t, custom, "***"); len(paras) != 1 || !paras[0].Centered {
+			t.Errorf("*** should be the scene change: %#v", paras)
+		}
+		if paras := body(t, custom, "** Now just a heading"); len(paras) != 0 {
+			t.Errorf("** should now be an ignored heading: %#v", paras)
+		}
+	})
+
+	t.Run("indented asterisks stay prose", func(t *testing.T) {
+		for _, line := range []string{"\t* Not a heading", "\t*** Nor this"} {
+			if paras := body(t, opts, line); len(paras) != 1 || paras[0].Centered {
+				t.Errorf("%q gave %#v, want one left-aligned paragraph", line, paras)
+			}
+		}
+	})
+
 	t.Run("indented scene marker stays prose", func(t *testing.T) {
 		paras := body(t, opts, "\t**Bang* she said")
 		if len(paras) != 1 || paras[0].Centered {

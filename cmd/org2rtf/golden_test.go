@@ -20,6 +20,7 @@ var goldenCases = []struct {
 }{
 	{name: "manuscript"},
 	{name: "noend"},
+	{name: "sections"},
 	{
 		name:   "underline",
 		adjust: func(c *config.Config) { c.Underscore = config.Underline },
