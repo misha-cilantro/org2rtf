@@ -217,9 +217,35 @@ Formatting is modeled as two independent toggles, not as a nesting stack:
     *   toggles bold
     _   toggles emphasis, which renders as italic or underline per --underscore
 
-Every occurrence of these characters is a marker. There is no word-boundary rule;
-"this_word_example" italicizes "word". Literal underscores and asterisks are
-produced with the escape mechanism, not inferred from context.
+Every occurrence of these characters is a marker, with one exception below. There
+is no word-boundary rule; "this_word_example" italicizes "word". Literal
+underscores and asterisks are otherwise produced with the escape mechanism, not
+inferred from context.
+
+BARE MARKERS
+
+A run of markers with whitespace, or the edge of the line, on both sides is
+literal text rather than a marker:
+
+    bongocat * 30m ago    the asterisk is literal
+    a * b * c             both are literal
+    a ** b *** c          whole runs are literal
+    a<tab>*<tab>b         tabs count as whitespace
+    5 x 3 *               a trailing marker is literal
+    <tab>*                an indented lone marker is literal
+
+This cannot misfire on real emphasis. An opening marker is immediately followed
+by the text it emphasises and a closing marker is immediately preceded by it, so
+a run flanked by whitespace on both sides can never be a valid marker under any
+reading. Emphasis on the same line is unaffected:
+
+    a * b *bold* c        the first asterisk is literal, "bold" is bold
+    5 *3* dollars         attached, so "3" is bold
+
+The consequence is that a marker attached to text on one side only is still a
+marker, and still warns if left open:
+
+    He paid 5 *3 dollars. -> opens bold, closed at end of line, warns
 
 Because the toggles are independent, overlapping ranges are well defined:
 
@@ -230,13 +256,14 @@ paragraph boundary.
 
 WARNINGS ON AUTO-CLOSE
 
-Auto-closing is legal but is usually a symptom: an unescaped literal asterisk or
-underscore, as in "He paid 5 * 3 dollars". Every time a line is auto-closed the
-app writes a warning to stderr naming the line number, reproducing the line
-verbatim, and giving both remedies:
+Auto-closing is legal but is usually a symptom: a literal asterisk or underscore
+attached to a word and left unescaped, as in "He paid 5 *3 dollars". A marker
+with whitespace on both sides is literal per the bare-marker rule above and never
+warns. Every time a line is auto-closed the app writes a warning to stderr naming
+the line number, reproducing the line verbatim, and giving both remedies:
 
     org2rtf: warning: line 3: unclosed * marker, closed at end of line
-        	He paid 5 * 3 dollars for it.
+        	He paid 5 *3 dollars for it.
         hint: write `* to keep it literal, or add the matching * to close it
 
     org2rtf: warning: line 4: unclosed * and _ markers, closed at end of line
@@ -293,8 +320,11 @@ Examples, with the default configuration and --underscore=italic:
         -> literal "this_word_example"
 
     He paid 5 * 3 dollars.
-        -> everything after the * is bold, closed at end of line;
-           use `* or ``` to prevent it
+        -> literal; the asterisk has whitespace on both sides
+
+    He paid 5 *3 dollars.
+        -> attached, so everything after the * is bold, closed at end of
+           line, and warned about; use `*3 or ``` to prevent it
 
     Press `` to continue
         -> literal backtick
@@ -363,6 +393,10 @@ Cases that must be covered:
     - a tab immediately adjacent to a formatting marker
     - all four escape cases from section IV
     - overlapping bold/italic ranges
+    - bare markers: single, repeated on one line, whole runs, tab-separated,
+      trailing, and indented-alone
+    - a bare marker on the same line as real emphasis (must not disturb it)
+    - a marker attached on one side only (must still be a marker)
     - a marker left unclosed at end of line
     - the warning that reports it: line number, verbatim line, both remedies,
       one marker and two, and the configured word escape appearing in the hint

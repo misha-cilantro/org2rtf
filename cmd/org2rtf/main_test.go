@@ -31,14 +31,14 @@ func TestPrintWarnings(t *testing.T) {
 	t.Run("one marker", func(t *testing.T) {
 		var buf bytes.Buffer
 		printWarnings(&buf, []parse.Warning{
-			{Line: 12, Text: "\tHe paid 5 * 3 dollars.", Markers: []string{"*"}},
+			{Line: 12, Text: "\tHe paid 5 *3 dollars.", Markers: []string{"*"}},
 		}, "`")
 
 		out := buf.String()
 		for _, want := range []string{
 			"line 12",
 			"unclosed * marker",
-			"He paid 5 * 3 dollars.",
+			"He paid 5 *3 dollars.",
 			"write `* to keep it literal",
 			"add the matching * to close it",
 		} {

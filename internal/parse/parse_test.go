@@ -90,11 +90,12 @@ func TestInlineFormatting(t *testing.T) {
 			},
 		},
 		{
+			// Attached to the text, so it is a real marker, and unmatched.
 			name: "unclosed marker closes at end of line",
-			in:   "He paid 5 * 3 dollars.",
+			in:   "He paid 5 *3 dollars.",
 			want: []doc.Run{
 				{Text: "He paid 5 "},
-				{Text: " 3 dollars.", Bold: true},
+				{Text: "3 dollars.", Bold: true},
 			},
 		},
 		{
@@ -141,6 +142,59 @@ func TestInlineFormatting(t *testing.T) {
 				{Text: "a_b\tc"},
 				{Text: "d", Italic: true},
 			},
+		},
+		{
+			name: "bare asterisk between spaces is literal",
+			in:   "bongocat * 30m ago",
+			want: []doc.Run{{Text: "bongocat * 30m ago"}},
+		},
+		{
+			name: "two bare asterisks on one line",
+			in:   "a * b * c",
+			want: []doc.Run{{Text: "a * b * c"}},
+		},
+		{
+			name: "bare underscore between spaces is literal",
+			in:   "a _ b",
+			want: []doc.Run{{Text: "a _ b"}},
+		},
+		{
+			name: "bare run of markers is literal",
+			in:   "a ** b *** c",
+			want: []doc.Run{{Text: "a ** b *** c"}},
+		},
+		{
+			name: "bare marker separated by tabs is literal",
+			in:   "a\t*\tb",
+			want: []doc.Run{{Text: "a\t*\tb"}},
+		},
+		{
+			name: "trailing bare marker is literal",
+			in:   "5 x 3 *",
+			want: []doc.Run{{Text: "5 x 3 *"}},
+		},
+		{
+			name: "bare marker does not disturb real emphasis on the line",
+			in:   "a * b *bold* c",
+			want: []doc.Run{
+				{Text: "a * b "},
+				{Text: "bold", Bold: true},
+				{Text: " c"},
+			},
+		},
+		{
+			name: "attached markers still emphasise",
+			in:   "5 *3* dollars",
+			want: []doc.Run{
+				{Text: "5 "},
+				{Text: "3", Bold: true},
+				{Text: " dollars"},
+			},
+		},
+		{
+			name: "indented lone marker is literal",
+			in:   "\t*",
+			want: []doc.Run{{Text: "\t*"}},
 		},
 		{
 			name: "slash and plus are literal",
@@ -464,7 +518,7 @@ func TestUnclosedMarkerWarnings(t *testing.T) {
 	opts := testOpts()
 
 	t.Run("reports the line, its number and the marker", func(t *testing.T) {
-		src := "#+TITLE: x\npreamble\n#+begin_story\n\tFine *line* here.\n\tHe paid 5 * 3 dollars.\n#+end_story\n"
+		src := "#+TITLE: x\npreamble\n#+begin_story\n\tFine *line* here.\n\tHe paid 5 *3 dollars.\n#+end_story\n"
 
 		_, warnings, err := Parse([]byte(src), opts)
 		if err != nil {
@@ -475,7 +529,7 @@ func TestUnclosedMarkerWarnings(t *testing.T) {
 		}
 
 		got := warnings[0]
-		want := Warning{Line: 5, Text: "\tHe paid 5 * 3 dollars.", Markers: []string{"*"}}
+		want := Warning{Line: 5, Text: "\tHe paid 5 *3 dollars.", Markers: []string{"*"}}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got  %#v\nwant %#v", got, want)
 		}
@@ -504,8 +558,33 @@ func TestUnclosedMarkerWarnings(t *testing.T) {
 		}
 	})
 
+	t.Run("a bare marker no longer warns", func(t *testing.T) {
+		src := "#+begin_story\n\tbongocat * 30m ago\n#+end_story\n"
+		_, warnings, err := Parse([]byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(warnings) != 0 {
+			t.Errorf("got %#v, want no warnings for a bare asterisk", warnings)
+		}
+	})
+
+	t.Run("an attached marker still warns", func(t *testing.T) {
+		// The bare-run rule must not silence a genuinely unclosed marker.
+		src := "#+begin_story\n\tHe paid 5 *3 dollars.\n#+end_story\n"
+		_, warnings, err := Parse([]byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(warnings) != 1 {
+			t.Fatalf("got %d warnings, want 1: %#v", len(warnings), warnings)
+		}
+	})
+
 	quiet := []struct{ name, line string }{
 		{"balanced markers", "\tShe said *hello* and _left_."},
+		{"bare asterisk", "\tbongocat * 30m ago"},
+		{"bare marker run", "\ta ** b"},
 		{"escaped literal asterisk", "\tHe paid 5 `* 3 dollars."},
 		{"whole line escaped", "\tHe paid ``` 5 * 3 dollars."},
 		{"no markers at all", "\tNothing to see here."},

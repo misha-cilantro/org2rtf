@@ -18,6 +18,8 @@ This prose sits before the begin marker and must not appear.
 	Four ````backticks*here* stay literal.
 	*Hello `this_word there* keeps bold across the escape.
 	and/or on 12/25/2024 in C++ is untouched.
+	bongocat * 30m ago, and a ** bare run, are literal.
+	But 5 *3 attaches, so it opens bold and warns.
 	Smart “quotes”, an em—dash, café, naïve.
 	Braces {like this}, a backslash \, done.
 	**Indented double asterisk is prose.

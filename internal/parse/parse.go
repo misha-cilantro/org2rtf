@@ -256,6 +256,18 @@ func parseLine(line string, opts Options) (runs []doc.Run, openBold, openEmph bo
 			continue
 		}
 
+		// A run of markers with whitespace on both sides cannot be emphasis: an
+		// opener is followed by the text it emphasises and a closer is preceded
+		// by it. So "bongocat * 30m ago" is literal, and no correctly written
+		// emphasis is affected.
+		if c := line[i]; c == '*' || c == '_' {
+			if end := runEnd(line, i, c); isBareRun(line, i, end) {
+				buf.WriteString(line[i:end])
+				i = end
+				continue
+			}
+		}
+
 		switch line[i] {
 		case '*':
 			flush()
@@ -275,4 +287,21 @@ func parseLine(line string, opts Options) (runs []doc.Run, openBold, openEmph bo
 
 func isSpaceOrTab(b byte) bool {
 	return b == ' ' || b == '\t'
+}
+
+// runEnd returns the index just past the run of c starting at i.
+func runEnd(line string, i int, c byte) int {
+	end := i
+	for end < len(line) && line[end] == c {
+		end++
+	}
+	return end
+}
+
+// isBareRun reports whether line[start:end] has whitespace, or the edge of the
+// line, on both sides.
+func isBareRun(line string, start, end int) bool {
+	leftClear := start == 0 || isSpaceOrTab(line[start-1])
+	rightClear := end == len(line) || isSpaceOrTab(line[end])
+	return leftClear && rightClear
 }
