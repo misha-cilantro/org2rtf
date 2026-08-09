@@ -608,9 +608,9 @@ func TestUnclosedMarkerWarnings(t *testing.T) {
 
 func TestTitleBlock(t *testing.T) {
 	opts := testOpts()
-	opts.TitleOffset = 2.5
+	opts.TitleBlankLines = 2
 
-	t.Run("title and byline, centered, offset, then a blank", func(t *testing.T) {
+	t.Run("blanks, title, byline, then a blank", func(t *testing.T) {
 		src := "#+title: The Long Goodbye\n#+author: Jane Doe\n#+begin_story\n\tThe door opened.\n#+end_story\n"
 
 		paras, warnings, err := Parse([]byte(src), opts)
@@ -622,7 +622,9 @@ func TestTitleBlock(t *testing.T) {
 		}
 
 		want := []doc.Paragraph{
-			{Runs: []doc.Run{{Text: "The Long Goodbye"}}, Centered: true, SpaceBefore: 2.5},
+			{},
+			{},
+			{Runs: []doc.Run{{Text: "The Long Goodbye"}}, Centered: true},
 			{Runs: []doc.Run{{Text: "by Jane Doe"}}, Centered: true},
 			{},
 			{Runs: []doc.Run{{Text: "\tThe door opened."}}},
@@ -639,7 +641,9 @@ func TestTitleBlock(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := []doc.Paragraph{
-			{Runs: []doc.Run{{Text: "Solo"}}, Centered: true, SpaceBefore: 2.5},
+			{},
+			{},
+			{Runs: []doc.Run{{Text: "Solo"}}, Centered: true},
 			{},
 			{Runs: []doc.Run{{Text: "x"}}},
 		}
@@ -648,17 +652,21 @@ func TestTitleBlock(t *testing.T) {
 		}
 	})
 
-	t.Run("author only still gets the offset", func(t *testing.T) {
+	t.Run("author only still gets the leading blanks", func(t *testing.T) {
 		src := "#+author: Jane Doe\n#+begin_story\nx\n#+end_story\n"
 		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if paras[0].SpaceBefore != 2.5 || !paras[0].Centered {
-			t.Errorf("got %#v, want the byline offset and centered", paras[0])
+		want := []doc.Paragraph{
+			{},
+			{},
+			{Runs: []doc.Run{{Text: "by Jane Doe"}}, Centered: true},
+			{},
+			{Runs: []doc.Run{{Text: "x"}}},
 		}
-		if paras[0].Runs[0].Text != "by Jane Doe" {
-			t.Errorf("got %q, want the by prefix", paras[0].Runs[0].Text)
+		if !reflect.DeepEqual(paras, want) {
+			t.Errorf("got  %#v\nwant %#v", paras, want)
 		}
 	})
 
@@ -675,12 +683,12 @@ func TestTitleBlock(t *testing.T) {
 	})
 
 	t.Run("keywords are case insensitive and the value is trimmed", func(t *testing.T) {
-		src := "#+TITLE:   Spaced Out   \n#+begin_story\nx\n#+end_story\n"
+		src := "  #+TITLE:   Spaced Out   \n#+begin_story\nx\n#+end_story\n"
 		paras, _, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := paras[0].Runs[0].Text; got != "Spaced Out" {
+		if got := paras[2].Runs[0].Text; got != "Spaced Out" {
 			t.Errorf("got %q, want %q", got, "Spaced Out")
 		}
 	})
@@ -693,6 +701,17 @@ func TestTitleBlock(t *testing.T) {
 		}
 		if len(paras) != 1 {
 			t.Errorf("got %#v, want no title block", paras)
+		}
+	})
+
+	t.Run("no keywords means no leading blanks either", func(t *testing.T) {
+		src := "#+begin_story\nx\n#+end_story\n"
+		paras, _, err := Parse([]byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(paras) != 1 {
+			t.Errorf("got %#v, want the story to start at the top", paras)
 		}
 	})
 
@@ -714,49 +733,50 @@ func TestTitleBlock(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := paras[0].Runs[0].Text; got != "First" {
+		if got := paras[2].Runs[0].Text; got != "First" {
 			t.Errorf("got %q, want %q", got, "First")
 		}
 	})
 
-	t.Run("inline formatting applies", func(t *testing.T) {
-		src := "#+title: The *Big* Sleep\n#+begin_story\nx\n#+end_story\n"
-		paras, _, err := Parse([]byte(src), opts)
+	t.Run("the value is literal, markers and all", func(t *testing.T) {
+		src := "#+title: The *Big* Sleep\n#+author: A_B *C\n#+begin_story\nx\n#+end_story\n"
+
+		paras, warnings, err := Parse([]byte(src), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []doc.Run{
-			{Text: "The "},
-			{Text: "Big", Bold: true},
-			{Text: " Sleep"},
+		if len(warnings) != 0 {
+			t.Errorf("literal text should never warn: %#v", warnings)
 		}
-		if !reflect.DeepEqual(paras[0].Runs, want) {
-			t.Errorf("got %#v\nwant %#v", paras[0].Runs, want)
+
+		want := []doc.Paragraph{
+			{},
+			{},
+			{Runs: []doc.Run{{Text: "The *Big* Sleep"}}, Centered: true},
+			{Runs: []doc.Run{{Text: "by A_B *C"}}, Centered: true},
+			{},
+			{Runs: []doc.Run{{Text: "x"}}},
+		}
+		if !reflect.DeepEqual(paras, want) {
+			t.Errorf("got  %#v\nwant %#v", paras, want)
 		}
 	})
 
-	t.Run("an unclosed marker in the title warns with the source line", func(t *testing.T) {
-		src := "#+title: The *Big Sleep\n#+begin_story\nx\n#+end_story\n"
-		_, warnings, err := Parse([]byte(src), opts)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := []Warning{{Line: 1, Text: "#+title: The *Big Sleep", Markers: []string{"*"}}}
-		if !reflect.DeepEqual(warnings, want) {
-			t.Errorf("got  %#v\nwant %#v", warnings, want)
-		}
-	})
-
-	t.Run("a zero offset is honoured", func(t *testing.T) {
+	t.Run("zero blank lines puts the title at the top", func(t *testing.T) {
 		zero := testOpts()
-		zero.TitleOffset = 0
+		zero.TitleBlankLines = 0
 
 		paras, _, err := Parse([]byte("#+title: Top\n#+begin_story\nx\n#+end_story\n"), zero)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if paras[0].SpaceBefore != 0 {
-			t.Errorf("got %v, want no offset", paras[0].SpaceBefore)
+		want := []doc.Paragraph{
+			{Runs: []doc.Run{{Text: "Top"}}, Centered: true},
+			{},
+			{Runs: []doc.Run{{Text: "x"}}},
+		}
+		if !reflect.DeepEqual(paras, want) {
+			t.Errorf("got  %#v\nwant %#v", paras, want)
 		}
 	})
 }

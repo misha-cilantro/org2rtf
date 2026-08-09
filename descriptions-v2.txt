@@ -46,8 +46,9 @@ Flags:
         --line-spacing MODE  "single", "1.5", or "double". Default: single
         --margin IN          All four margins, in inches. Default: 1.0
         --tab-width IN       Distance between tab stops, in inches. Default: 0.5
-        --title-offset IN    Space above the title block, in inches. 0 puts it
-                             at the top of the page. Default: 2.5
+        --title-blank-lines N
+                             Empty paragraphs above the title block. 0 puts it
+                             at the top of the page. Default: 12
 
     -h, --help
         --version
@@ -70,7 +71,7 @@ Keys mirror the long flag names with hyphens replaced by underscores:
     line_spacing = "single"
     margin       = 1.0
     tab_width    = 0.5
-    title_offset = 2.5
+    title_blank_lines = 12
 
 An unknown key in the config file is an error, not a warning — it is almost always
 a typo, and silently ignoring it produces output that is wrong in a way the user
@@ -85,7 +86,8 @@ Startup validation, all of which abort before any file is written:
     - underscore must be "italic" or "underline"
     - line_spacing must be "single", "1.5", or "double"
     - font_size, margin, and tab_width must be positive
-    - title_offset must not be negative; zero is allowed and means no offset
+    - title_blank_lines must not be negative; zero is allowed and puts the
+      title block at the top of the page
 
 If the output file exists and --force was not given, abort with an error and write
 nothing.
@@ -127,8 +129,8 @@ Formatting control words:
     underline   \ul ... \ulnone
 
 Paragraphs are left-aligned by default (\pard). Title, byline, scene-change and
-final paragraphs are centered (\pard\qc). Space above a paragraph is \sb in
-twips, used only on the first paragraph of the title block.
+final paragraphs are centered (\pard\qc). No space-before, space-after or other
+paragraph spacing control words are emitted; vertical gaps are empty paragraphs.
 
 
 III. DOCUMENT STRUCTURE
@@ -146,14 +148,18 @@ III. DOCUMENT STRUCTURE
    Matching is case-insensitive and tolerates leading whitespace. The value is
    everything after the colon, trimmed at both ends: the space after the colon
    is keyword syntax, not part of the title. Only the first occurrence of each
-   keyword is used, and an empty value is treated as absent. Both values are
-   scanned for inline formatting per section IV, so "#+title: The *Big* Sleep"
-   emits a bold word and an unclosed marker there warns like anywhere else.
+   keyword is used, and an empty value is treated as absent.
 
-   The first paragraph of the block carries title_offset inches of space above
-   it, pushing the block down page one. One empty paragraph follows the block.
-   If neither keyword is present, nothing is emitted and the story starts at the
-   top of the page.
+   Both values are literal, like the scene glyph and the end text. Markers in a
+   title are printed as themselves, so "#+title: The *Big* Sleep" keeps its
+   asterisks and never warns.
+
+   The block is preceded by title_blank_lines empty paragraphs, which push it
+   down page one, and followed by one more. Empty paragraphs are used rather
+   than a space-before measurement: the distance therefore depends on the font
+   size and line spacing, but it renders identically in every reader. If neither
+   keyword is present, nothing is emitted at all, not even the blank lines, and
+   the story starts at the top of the page.
 
    A #+title: after the begin marker is not a title. It starts with "#", so it
    is an ordinary comment.
@@ -440,9 +446,9 @@ Cases that must be covered:
     - non-ASCII characters: smart quotes, em dash, accented letters
     - literal backslash, brace, and backtick in prose
     - title block: both keywords, each alone, neither, case-insensitivity,
-      value trimming, an empty value, a repeated keyword, inline formatting in
-      a title, a keyword after the begin marker (a comment), the offset landing
-      on the first paragraph only, and a zero offset
+      value trimming, an empty value, a repeated keyword, a keyword after the
+      begin marker (a comment), markers in a value staying literal, the leading
+      blank lines, and a zero blank-line count
     - missing begin marker, and end marker before begin marker (both errors)
     - missing end marker (runs to EOF, succeeds)
     - --underscore=underline

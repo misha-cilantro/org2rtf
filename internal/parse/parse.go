@@ -80,8 +80,9 @@ func Parse(src []byte, opts Options) ([]doc.Paragraph, []Warning, error) {
 	// The title block is built from keywords in the preamble, the part of the
 	// file before the begin marker. A #+title: after the marker is just a
 	// comment, like any other line starting with "#".
-	paras, warnings := titleBlock(lines[:beginIdx], opts)
+	paras := titleBlock(lines[:beginIdx], opts)
 
+	var warnings []Warning
 	for offset, line := range lines[beginIdx+1:] {
 		trimmed := trimLeadingSpace(line)
 
@@ -132,56 +133,40 @@ func Parse(src []byte, opts Options) ([]doc.Paragraph, []Warning, error) {
 }
 
 // titleBlock builds the centered title and byline from the preamble's #+title:
-// and #+author: keywords. The block is preceded by title_blank_lines empty
-// paragraphs, which push it down the first page, and followed by one more. If
-// neither keyword is present nothing is emitted and the story starts at the top.
-func titleBlock(preamble []string, opts Options) ([]doc.Paragraph, []Warning) {
-	var (
-		block    []doc.Paragraph
-		warnings []Warning
-	)
+// and #+author: keywords. Both are taken literally, like the scene glyph and the
+// end text. The block is preceded by title_blank_lines empty paragraphs, which
+// push it down the first page, and followed by one more. If neither keyword is
+// present nothing is emitted and the story starts at the top.
+func titleBlock(preamble []string, opts Options) []doc.Paragraph {
+	var block []doc.Paragraph
 
-	add := func(text string, keywordLine int, sourceLine string) {
-		runs, openBold, openEmph := parseLine(text, opts)
-		block = append(block, doc.Paragraph{Runs: runs, Centered: true})
-
-		if markers := openMarkers(openBold, openEmph); markers != nil {
-			warnings = append(warnings, Warning{
-				Line:    keywordLine + 1,
-				Text:    sourceLine,
-				Markers: markers,
-			})
-		}
+	if title := keywordValue(preamble, titleKeyword); title != "" {
+		block = append(block, literalParagraph(title))
 	}
-
-	if title, at := keywordValue(preamble, titleKeyword); title != "" {
-		add(title, at, preamble[at])
+	if author := keywordValue(preamble, authorKeyword); author != "" {
+		block = append(block, literalParagraph(bylinePrefix+author))
 	}
-	if author, at := keywordValue(preamble, authorKeyword); author != "" {
-		add(bylinePrefix+author, at, preamble[at])
-	}
-
 	if len(block) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	paras := make([]doc.Paragraph, opts.TitleBlankLines, opts.TitleBlankLines+len(block)+1)
 	paras = append(paras, block...)
-	return append(paras, doc.Paragraph{}), warnings
+	return append(paras, doc.Paragraph{})
 }
 
-// keywordValue returns the value of the first occurrence of an org keyword and
-// the index of the line it was found on, or ("", -1) if it is absent. Leading
-// whitespace before the keyword is tolerated, and the value is trimmed: the
-// space after the colon is keyword syntax, not part of the title.
-func keywordValue(lines []string, keyword string) (string, int) {
-	for i, line := range lines {
+// keywordValue returns the value of the first occurrence of an org keyword, or
+// "" if it is absent. Leading whitespace before the keyword is tolerated, and
+// the value is trimmed at both ends: the space after the colon is keyword
+// syntax, not part of the title.
+func keywordValue(lines []string, keyword string) string {
+	for _, line := range lines {
 		trimmed := trimLeadingSpace(line)
 		if len(trimmed) >= len(keyword) && strings.EqualFold(trimmed[:len(keyword)], keyword) {
-			return strings.TrimSpace(trimmed[len(keyword):]), i
+			return strings.TrimSpace(trimmed[len(keyword):])
 		}
 	}
-	return "", -1
+	return ""
 }
 
 // openMarkers names the toggles left open at end of line, or nil if none were.
@@ -204,8 +189,8 @@ func endParagraph(opts Options) []doc.Paragraph {
 }
 
 // literalParagraph builds a centered paragraph whose text is taken verbatim.
-// The scene glyph and end text are not scanned for markers; the default glyph
-// is "*", which would otherwise toggle bold and emit nothing.
+// The title, byline, scene glyph and end text are not scanned for markers; the
+// default glyph is "*", which would otherwise toggle bold and emit nothing.
 func literalParagraph(text string) doc.Paragraph {
 	p := doc.Paragraph{Centered: true}
 	if text != "" {
