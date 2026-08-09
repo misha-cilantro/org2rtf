@@ -1,0 +1,4 @@
+#+begin_story
+	She _left_ and *he* _stayed_.
+	Both *_at once_* in one run.
+#+end_story

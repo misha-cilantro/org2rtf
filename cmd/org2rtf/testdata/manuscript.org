@@ -1,0 +1,25 @@
+#+TITLE: Everything test
+This prose sits before the begin marker and must not appear.
+
+#+begin_story
+	The door opened.
+
+	She said *hello* and then _left_ quietly.
+	*bold _both* italic_ trailing text.
+	The file_name_here is italicised; `file_name_here is not.
+# a comment at column zero
+	# an indented comment
+**
+	After the scene break.
+** trailing text on a scene line is discarded
+		Two tabs here, and			three tabs there.
+	Press `` to continue, and note a lone ` backtick.
+	Notes: ``` see *this* and _that_ verbatim.
+	Four ````backticks*here* stay literal.
+	*Hello `this_word there* keeps bold across the escape.
+	and/or on 12/25/2024 in C++ is untouched.
+	Smart “quotes”, an em—dash, café, naïve.
+	Braces {like this}, a backslash \, done.
+	**Indented double asterisk is prose.
+	#+end_story
+This trailing prose must not appear.

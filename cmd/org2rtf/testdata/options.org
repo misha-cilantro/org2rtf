@@ -1,0 +1,5 @@
+#+begin_story
+	Scene one, in Courier at double spacing.
+**
+	Scene two, after a custom glyph, with no END paragraph.
+#+end_story

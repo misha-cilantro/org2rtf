@@ -1,0 +1,4 @@
+#+begin_story
+	One.
+
+	Two, with no end marker after it.

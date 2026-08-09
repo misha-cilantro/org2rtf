@@ -101,10 +101,17 @@ Character-level escaping, applied to all emitted text:
 
     \  {  }              escaped as \\  \{  \}
     tab (U+0009)         emitted as \tab
-    non-ASCII (> U+007F) emitted as \uNNNN? with the signed 16-bit code unit;
+    other control chars  emitted as \'hh
+    non-ASCII (> U+007F) emitted as "\uNNNN ?" with the signed 16-bit code unit;
                          characters outside the BMP emit their surrogate pair as
                          two consecutive \u escapes
     everything else      emitted literally
+
+The space before the "?" substitute character is required. Both "\uNNNN?" and
+"\uNNNN ?" are spec-legal, but without the explicit delimiter some readers treat
+the "?" as the delimiter and then skip the character after it, so "caf\u233?, x"
+silently loses its comma. Verified against pandoc's RTF reader and the Windows
+RichTextBox control, which disagree on the first form and agree on the second.
 
 This escaping is what allows smart quotes, em dashes, and accented characters to
 round-trip correctly.
@@ -244,7 +251,8 @@ Examples, with the default configuration and --underscore=italic:
         -> literal backtick
 
     Notes: ``` see *this* and _that_
-        -> literal "see *this* and _that_"
+        -> literal " see *this* and _that_", including the space that follows
+           the marker; the remainder of the line is taken untouched
 
     foo ` bar
         -> literal backtick between two spaces
