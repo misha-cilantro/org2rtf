@@ -6,6 +6,8 @@ package parse
 import (
 	"errors"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"org2rtf/internal/doc"
 )
@@ -30,13 +32,33 @@ const (
 	bylinePrefix = "by "
 )
 
-// Warning reports a line that ended with formatting still open, which the
-// parser closed for it. That is legal but usually means a literal asterisk or
-// underscore went unescaped, so it is worth surfacing.
+// WarningKind distinguishes the situations a warning reports.
+type WarningKind int
+
+const (
+	// Unclosed is a line that ended with formatting still open, which the
+	// parser closed for it.
+	Unclosed WarningKind = iota
+
+	// MidWord is a marker with word characters on both sides, as in
+	// "this_has_underlines".
+	MidWord
+)
+
+// Warning reports formatting that is legal but probably unintended: usually a
+// literal asterisk or underscore that went unescaped. Warnings never block
+// conversion.
 type Warning struct {
-	Line    int      // 1-based line number in the source file
-	Text    string   // the offending source line, verbatim
-	Markers []string // the markers left open, in the order "*", "_"
+	Kind WarningKind
+	Line int    // 1-based line number in the source file
+	Text string // the offending source line, verbatim
+
+	// Markers is the markers left open in the order "*", "_" for Unclosed, and
+	// the single marker run for MidWord.
+	Markers []string
+
+	// Word is the word containing the marker. MidWord only.
+	Word string
 }
 
 // Options are the parser-relevant subset of the configuration.
@@ -115,14 +137,26 @@ func Parse(src []byte, opts Options) ([]doc.Paragraph, []Warning, error) {
 			// indented to match the prose around them.
 
 		default:
-			runs, openBold, openEmph := parseLine(line, opts)
-			paras = append(paras, doc.Paragraph{Runs: runs})
+			scan := parseLine(line, opts)
+			paras = append(paras, doc.Paragraph{Runs: scan.Runs})
 
-			if markers := openMarkers(openBold, openEmph); markers != nil {
+			// +2 because beginIdx is 0-based and the body starts on the line
+			// after it.
+			lineNo := beginIdx + 2 + offset
+
+			for _, hit := range scan.MidWords {
 				warnings = append(warnings, Warning{
-					// +2 because beginIdx is 0-based and the body starts on
-					// the line after it.
-					Line:    beginIdx + 2 + offset,
+					Kind:    MidWord,
+					Line:    lineNo,
+					Text:    line,
+					Markers: []string{hit.marker},
+					Word:    hit.word,
+				})
+			}
+			if markers := openMarkers(scan.OpenBold, scan.OpenEmph); markers != nil {
+				warnings = append(warnings, Warning{
+					Kind:    Unclosed,
+					Line:    lineNo,
 					Text:    line,
 					Markers: markers,
 				})
@@ -250,15 +284,35 @@ func hasMarker(line string, markers []string) bool {
 	return false
 }
 
+// lineScan is the result of scanning one line: its styled runs plus anything
+// worth warning about.
+type lineScan struct {
+	Runs     []doc.Run
+	OpenBold bool // bold was still on when the line ended
+	OpenEmph bool // emphasis was still on when the line ended
+	MidWords []midWordHit
+}
+
+// midWordHit is one marker run found with word characters on both sides.
+type midWordHit struct {
+	marker string // the run itself, e.g. "_"
+	word   string // the whitespace-delimited word containing it
+}
+
 // parseLine scans one line into styled runs. Bold and emphasis are independent
 // toggles rather than a nesting stack, so overlapping ranges are well defined
-// and anything still open simply closes at end of line. The returned flags say
-// which toggles were still open when the line ended.
-func parseLine(line string, opts Options) (runs []doc.Run, openBold, openEmph bool) {
+// and anything still open simply closes at end of line.
+func parseLine(line string, opts Options) lineScan {
 	var (
+		scan lineScan
+		runs []doc.Run
 		buf  strings.Builder
 		bold bool
 		emph bool
+
+		// End of the last word reported as mid-word, so "this_has_underlines"
+		// warns once rather than once per marker.
+		reportedWordEnd int
 	)
 
 	flush := func() {
@@ -313,15 +367,30 @@ func parseLine(line string, opts Options) (runs []doc.Run, openBold, openEmph bo
 			continue
 		}
 
-		// A run of markers with whitespace on both sides cannot be emphasis: an
-		// opener is followed by the text it emphasises and a closer is preceded
-		// by it. So "bongocat * 30m ago" is literal, and no correctly written
-		// emphasis is affected.
 		if c := line[i]; c == '*' || c == '_' {
-			if end := runEnd(line, i, c); isBareRun(line, i, end) {
+			end := runEnd(line, i, c)
+
+			switch {
+			// A run of markers with whitespace on both sides cannot be
+			// emphasis: an opener is followed by the text it emphasises and a
+			// closer is preceded by it. So "bongocat * 30m ago" is literal, and
+			// no correctly written emphasis is affected.
+			case isBareRun(line, i, end):
 				buf.WriteString(line[i:end])
 				i = end
 				continue
+
+			// Word characters on both sides. Still a marker, but usually an
+			// unescaped literal such as "this_has_underlines", so it is worth
+			// reporting. Punctuation does not count as a word character, which
+			// keeps "*Titanic*'s" from being flagged.
+			case i >= reportedWordEnd && isMidWord(line, i, end):
+				wordStart, wordEnd := wordBounds(line, i, end)
+				scan.MidWords = append(scan.MidWords, midWordHit{
+					marker: line[i:end],
+					word:   line[wordStart:wordEnd],
+				})
+				reportedWordEnd = wordEnd
 			}
 		}
 
@@ -339,7 +408,11 @@ func parseLine(line string, opts Options) (runs []doc.Run, openBold, openEmph bo
 	}
 
 	flush()
-	return runs, bold, emph
+
+	scan.Runs = runs
+	scan.OpenBold = bold
+	scan.OpenEmph = emph
+	return scan
 }
 
 func isSpaceOrTab(b byte) bool {
@@ -361,4 +434,28 @@ func isBareRun(line string, start, end int) bool {
 	leftClear := start == 0 || isSpaceOrTab(line[start-1])
 	rightClear := end == len(line) || isSpaceOrTab(line[end])
 	return leftClear && rightClear
+}
+
+// isMidWord reports whether line[start:end] has a word character on both sides.
+// Punctuation deliberately does not count, so a closing marker followed by an
+// apostrophe or comma, as in "*Titanic*'s", is not treated as mid-word.
+func isMidWord(line string, start, end int) bool {
+	before, beforeSize := utf8.DecodeLastRuneInString(line[:start])
+	after, afterSize := utf8.DecodeRuneInString(line[end:])
+	return beforeSize > 0 && isWordRune(before) && afterSize > 0 && isWordRune(after)
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// wordBounds widens a span to the whitespace-delimited word containing it.
+func wordBounds(line string, start, end int) (int, int) {
+	for start > 0 && !isSpaceOrTab(line[start-1]) {
+		start--
+	}
+	for end < len(line) && !isSpaceOrTab(line[end]) {
+		end++
+	}
+	return start, end
 }

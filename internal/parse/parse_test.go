@@ -781,6 +781,121 @@ func TestTitleBlock(t *testing.T) {
 	})
 }
 
+func TestMidWordWarnings(t *testing.T) {
+	opts := testOpts()
+
+	// Only the mid-word warnings; a line with an odd number of markers also
+	// produces an unclosed warning, which is covered by its own test.
+	warn := func(t *testing.T, line string) []Warning {
+		t.Helper()
+		src := "#+begin_story\n" + line + "\n#+end_story\n"
+		_, warnings, err := Parse([]byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var midWords []Warning
+		for _, w := range warnings {
+			if w.Kind == MidWord {
+				midWords = append(midWords, w)
+			}
+		}
+		return midWords
+	}
+
+	t.Run("reports the marker, the word and the line", func(t *testing.T) {
+		src := "#+begin_story\n\tThe this_has_underlines name.\n#+end_story\n"
+		_, warnings, err := Parse([]byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := []Warning{{
+			Kind:    MidWord,
+			Line:    2,
+			Text:    "\tThe this_has_underlines name.",
+			Markers: []string{"_"},
+			Word:    "this_has_underlines",
+		}}
+		if !reflect.DeepEqual(warnings, want) {
+			t.Errorf("got  %#v\nwant %#v", warnings, want)
+		}
+	})
+
+	t.Run("one warning per word, not per marker", func(t *testing.T) {
+		if got := warn(t, "a_b_c_d"); len(got) != 1 {
+			t.Errorf("got %d warnings, want 1: %#v", len(got), got)
+		}
+	})
+
+	t.Run("separate words warn separately", func(t *testing.T) {
+		got := warn(t, "one_two and three_four")
+		if len(got) != 2 {
+			t.Fatalf("got %d warnings, want 2: %#v", len(got), got)
+		}
+		if got[0].Word != "one_two" || got[1].Word != "three_four" {
+			t.Errorf("got words %q and %q", got[0].Word, got[1].Word)
+		}
+	})
+
+	t.Run("digits and non-ascii letters count as word characters", func(t *testing.T) {
+		for _, line := range []string{"a1_2b", "café_naïve"} {
+			if got := warn(t, line); len(got) != 1 {
+				t.Errorf("%q gave %#v, want one warning", line, got)
+			}
+		}
+	})
+
+	t.Run("a mid-word run reports the whole run", func(t *testing.T) {
+		got := warn(t, "un**bloody**likely")
+		if len(got) == 0 {
+			t.Fatal("want a warning for deliberate partial-word emphasis")
+		}
+		if got[0].Markers[0] != "**" {
+			t.Errorf("got marker %q, want %q", got[0].Markers[0], "**")
+		}
+	})
+
+	quiet := []struct{ name, line string }{
+		{"well-formed emphasis", "She said *hello* and _left_ quietly."},
+		{"possessive after a closer", "The *Titanic*'s maiden voyage."},
+		{"comma after a closer", "He was *late*, again."},
+		{"quote around emphasis", "“*Now*,” she said."},
+		{"bracketed emphasis", "(*aside*) and [_note_]"},
+		{"bare marker", "bongocat * 30m ago"},
+		{"escaped word", "`this_has_underlines is escaped"},
+		{"line escape", "``` this_has_underlines is literal"},
+		{"marker at line start", "*bold* at the start"},
+		{"marker at line end", "ending in *bold*"},
+		{"no markers", "Nothing to see here."},
+	}
+	for _, tt := range quiet {
+		t.Run("no warning: "+tt.name, func(t *testing.T) {
+			if got := warn(t, tt.line); len(got) != 0 {
+				t.Errorf("got %#v, want no warnings", got)
+			}
+		})
+	}
+}
+
+func TestBothWarningKindsOnOneLine(t *testing.T) {
+	src := "#+begin_story\n\tthe a_b name and an *unclosed marker\n#+end_story\n"
+
+	_, warnings, err := Parse([]byte(src), testOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("got %d warnings, want 2: %#v", len(warnings), warnings)
+	}
+	if warnings[0].Kind != MidWord {
+		t.Errorf("got %v first, want the mid-word warning", warnings[0].Kind)
+	}
+	if warnings[1].Kind != Unclosed {
+		t.Errorf("got %v second, want the unclosed warning", warnings[1].Kind)
+	}
+}
+
 func TestCRLFMatchesLF(t *testing.T) {
 	lf := "#+begin_story\n\tOne.\n\n\tTwo.\n#+end_story\n"
 	crlf := "#+begin_story\r\n\tOne.\r\n\r\n\tTwo.\r\n#+end_story\r\n"

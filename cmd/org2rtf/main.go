@@ -222,29 +222,50 @@ func run(args []string) error {
 	return nil
 }
 
-// printWarnings reports lines that ended with formatting still open. This is
-// almost always an unescaped literal asterisk or underscore, so each warning
-// names both remedies: escape it, or close it.
+// printWarnings reports formatting that is legal but probably unintended. Each
+// warning names the line, reproduces it verbatim, and gives the remedy.
 func printWarnings(w io.Writer, warnings []parse.Warning, wordEscape string) {
 	for _, warn := range warnings {
-		markers := strings.Join(warn.Markers, " and ")
-
-		escaped := make([]string, len(warn.Markers))
-		for i, m := range warn.Markers {
-			escaped[i] = wordEscape + m
+		switch warn.Kind {
+		case parse.MidWord:
+			printMidWord(w, warn, wordEscape)
+		default:
+			printUnclosed(w, warn, wordEscape)
 		}
-
-		noun, pronoun := "marker", "it"
-		if len(warn.Markers) > 1 {
-			noun, pronoun = "markers", "them"
-		}
-
-		fmt.Fprintf(w, "org2rtf: warning: line %d: unclosed %s %s, closed at end of line\n",
-			warn.Line, markers, noun)
-		fmt.Fprintf(w, "    %s\n", warn.Text)
-		fmt.Fprintf(w, "    hint: write %s to keep %s literal, or add the matching %s to close %s\n",
-			strings.Join(escaped, " or "), pronoun, markers, pronoun)
 	}
+}
+
+// printUnclosed reports a line that ended with formatting still open. This is
+// almost always an unescaped literal asterisk or underscore, so it names both
+// remedies: escape it, or close it.
+func printUnclosed(w io.Writer, warn parse.Warning, wordEscape string) {
+	markers := strings.Join(warn.Markers, " and ")
+
+	escaped := make([]string, len(warn.Markers))
+	for i, m := range warn.Markers {
+		escaped[i] = wordEscape + m
+	}
+
+	noun, pronoun := "marker", "it"
+	if len(warn.Markers) > 1 {
+		noun, pronoun = "markers", "them"
+	}
+
+	fmt.Fprintf(w, "org2rtf: warning: line %d: unclosed %s %s, closed at end of line\n",
+		warn.Line, markers, noun)
+	fmt.Fprintf(w, "    %s\n", warn.Text)
+	fmt.Fprintf(w, "    hint: write %s to keep %s literal, or add the matching %s to close %s\n",
+		strings.Join(escaped, " or "), pronoun, markers, pronoun)
+}
+
+// printMidWord reports a marker with word characters on both sides, which is
+// usually a name like this_has_underlines rather than intended emphasis.
+func printMidWord(w io.Writer, warn parse.Warning, wordEscape string) {
+	fmt.Fprintf(w, "org2rtf: warning: line %d: mid-word %s in %q\n",
+		warn.Line, warn.Markers[0], warn.Word)
+	fmt.Fprintf(w, "    %s\n", warn.Text)
+	fmt.Fprintf(w, "    hint: write %s%s to keep the word literal\n",
+		wordEscape, warn.Word)
 }
 
 // parseOptions extracts the parser-relevant options from a resolved config.

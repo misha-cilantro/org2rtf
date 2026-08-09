@@ -77,6 +77,29 @@ func TestPrintWarnings(t *testing.T) {
 		}
 	})
 
+	t.Run("mid-word", func(t *testing.T) {
+		var buf bytes.Buffer
+		printWarnings(&buf, []parse.Warning{{
+			Kind:    parse.MidWord,
+			Line:    7,
+			Text:    "\tThe this_has_underlines name.",
+			Markers: []string{"_"},
+			Word:    "this_has_underlines",
+		}}, "`")
+
+		out := buf.String()
+		for _, want := range []string{
+			"line 7",
+			`mid-word _ in "this_has_underlines"`,
+			"The this_has_underlines name.",
+			"hint: write `this_has_underlines to keep the word literal",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
 	t.Run("nothing printed when there are no warnings", func(t *testing.T) {
 		var buf bytes.Buffer
 		printWarnings(&buf, nil, "`")

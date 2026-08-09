@@ -286,13 +286,17 @@ Because the toggles are independent, overlapping ranges are well defined:
 Any toggle still active at end of line is closed there. Formatting never crosses a
 paragraph boundary.
 
-WARNINGS ON AUTO-CLOSE
+WARNINGS
 
-Auto-closing is legal but is usually a symptom: a literal asterisk or underscore
-attached to a word and left unescaped, as in "He paid 5 *3 dollars". A marker
-with whitespace on both sides is literal per the bare-marker rule above and never
-warns. Every time a line is auto-closed the app writes a warning to stderr naming
-the line number, reproducing the line verbatim, and giving both remedies:
+Two situations are legal but usually unintended, and both are reported to stderr
+with the line number and the line reproduced verbatim.
+
+1. AUTO-CLOSE
+
+A line that ends with formatting still open. Usually a literal asterisk or
+underscore attached to a word and left unescaped, as in "He paid 5 *3 dollars". A
+marker with whitespace on both sides is literal per the bare-marker rule above
+and never warns. The warning gives both remedies:
 
     org2rtf: warning: line 3: unclosed * marker, closed at end of line
         	He paid 5 *3 dollars for it.
@@ -303,10 +307,33 @@ the line number, reproducing the line verbatim, and giving both remedies:
         hint: write `* or `_ to keep them literal, or add the matching * and _
               to close them
 
-The hint always quotes the configured word escape, not a hard-coded backtick.
-Warnings go to stderr so they do not mix with the success line on stdout, and
-they never change the exit code or stop the conversion: the file is still
-written, with the markers closed at end of line.
+2. MID-WORD MARKER
+
+A marker run with a word character on both sides, which is usually a name such as
+this_has_underlines rather than intended emphasis:
+
+    org2rtf: warning: line 7: mid-word _ in "this_has_underlines"
+        	The this_has_underlines variable is fine.
+        hint: write `this_has_underlines to keep the word literal
+
+A word character is a letter or a digit, Unicode-aware, so "café_naïve" is caught.
+Punctuation deliberately does not count, which keeps correct emphasis quiet:
+
+    *Titanic*'s maiden voyage    closer followed by an apostrophe: no warning
+    He was *late*, again.        closer followed by a comma: no warning
+    (*aside*) and [_note_]       brackets and quotes: no warning
+
+Each affected word is reported once, however many markers it contains, and two
+affected words on one line produce two warnings. Escaped words never warn,
+because the escape consumes them before the scanner sees a marker.
+
+The one accepted false positive is deliberate partial-word emphasis, such as
+un*bloody*likely, which is genuinely mid-word and will be reported.
+
+Both kinds share the same properties. The hint always quotes the configured word
+escape, not a hard-coded backtick. Warnings go to stderr so they do not mix with
+the success line on stdout, and they never change the exit code or stop the
+conversion: the file is still written.
 
 ESCAPES
 
@@ -434,6 +461,14 @@ Cases that must be covered:
       one marker and two, and the configured word escape appearing in the hint
     - lines that must NOT warn: balanced markers, an escaped literal marker, a
       fully escaped line, comments, and scene-change lines
+    - mid-word markers: the reported marker, word and line; one warning per word
+      however many markers it holds; two words on one line warning separately;
+      digits and non-ASCII letters counting as word characters; a mid-word run
+      reported whole
+    - mid-word cases that must NOT warn: well-formed emphasis, a closer followed
+      by an apostrophe, comma, bracket or quote, an escaped word, a line escape,
+      a bare marker, and markers at the start or end of a line
+    - a line producing both warning kinds at once
     - blank lines, including consecutive blank lines
     - an indented comment and an indented end marker
     - an indented "**" and an indented "*" (must remain normal paragraphs)
